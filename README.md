@@ -14,9 +14,9 @@ import { createHandler } from "./handlers.ts"
 
 const watcher = new Watcher(".");
 
-// log every event
+// use middleware that logs every event
 watcher.use(async (ctx, next) => {
-  console.log(`${new Date().toISOString()} - ${ctx.event} ${ctx.path}`);
+  console.log(`${ctx.event}: ${ctx.path}`); // create: /example/file.txt
   await next();
 })
 
