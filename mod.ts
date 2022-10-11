@@ -42,7 +42,7 @@ const defaultOptions: Options = {
   debounceTime: 50,
 };
 
-export class Watcher<State extends Record<string, RecordAny>> {
+export class Watcher<State extends RecordAny> {
   paths: string[] = [];
   options: Options;
   #middlewares: Middleware<State>[] = [];
