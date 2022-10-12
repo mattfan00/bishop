@@ -77,7 +77,6 @@ export class Watcher<State extends RecordAny> {
     for await (const event of watcher) {
       event.paths.forEach(async (path) => {
         if (this.options.ignore && anymatch(this.options.ignore, path)) {
-          console.log("ignored " + path);
           return;
         }
 
