@@ -1,4 +1,4 @@
-import { objectHash, path } from "./deps.ts";
+import { anymatch, Matcher, objectHash, path } from "./deps.ts";
 import { getFileInfo, RecordAny } from "./utils.ts";
 
 export type EventName =
@@ -34,6 +34,7 @@ export interface Options {
   recursive: boolean;
   base: string;
   debounceTime: number | null;
+  ignore?: Matcher;
 }
 
 const defaultOptions: Options = {
@@ -75,6 +76,11 @@ export class Watcher<State extends RecordAny> {
 
     for await (const event of watcher) {
       event.paths.forEach(async (path) => {
+        if (this.options.ignore && anymatch(this.options.ignore, path)) {
+          console.log("ignored " + path);
+          return;
+        }
+
         const newEvent = {
           path: path,
           kind: event.kind,
@@ -146,4 +152,3 @@ export class Watcher<State extends RecordAny> {
     this.#middlewares.push(fn);
   }
 }
-
