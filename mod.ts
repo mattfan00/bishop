@@ -1,4 +1,4 @@
-import { anymatch, Matcher, objectHash, path } from "./deps.ts";
+import { anymatch, Matcher, objectHash } from "./deps.ts";
 import { getFileInfo, RecordAny } from "./utils.ts";
 
 export type EventName =
@@ -32,14 +32,12 @@ export type Middleware<State extends RecordAny> = (
 
 export interface Options {
   recursive: boolean;
-  base: string;
   debounceTime: number | null;
   ignore?: Matcher;
 }
 
 const defaultOptions: Options = {
   recursive: true,
-  base: Deno.cwd(),
   debounceTime: 50,
 };
 
@@ -57,12 +55,10 @@ export class Watcher<State extends RecordAny> {
   }
 
   addPaths(paths: string | string[]) {
-    const { base } = this.options;
     if (Array.isArray(paths)) {
-      const modifiedPaths = paths.map((p) => path.join(base, p));
-      this.paths = [...this.paths, ...modifiedPaths];
+      this.paths = [...this.paths, ...paths];
     } else {
-      this.paths.push(path.join(base, paths));
+      this.paths.push(paths);
     }
   }
 
