@@ -1,7 +1,13 @@
-import { anymatch, Matcher, objectHash } from "./deps.ts";
-import { getFileInfo, RecordAny } from "./utils.ts";
+import {
+  anymatch,
+  EventEmitter,
+  Matcher,
+  objectHash,
+  TypedEmitter,
+} from "./deps.ts";
+import { getFileInfo } from "./utils.ts";
 
-export type EventName =
+export type EventKind =
   | "any"
   | "access"
   | "create"
@@ -11,24 +17,16 @@ export type EventName =
 
 interface CustomFsEvent {
   path: string;
-  kind: EventName;
+  kind: EventKind;
   flag?: Deno.FsEventFlag;
 }
 
-export interface Context<State extends RecordAny> {
+export interface Context {
   path: string;
-  event: EventName;
+  event: EventKind;
   file: Deno.FileInfo | null;
   flag?: Deno.FsEventFlag;
-  state: State;
 }
-
-export type Next = () => Promise<void>;
-
-export type Middleware<State extends RecordAny> = (
-  ctx: Context<State>,
-  next: Next,
-) => Promise<void> | void;
 
 export interface Options {
   recursive: boolean;
@@ -41,13 +39,18 @@ const defaultOptions: Options = {
   debounceTime: 50,
 };
 
-export class Watcher<State extends RecordAny> {
+type TypedEvents = {
+  [event in EventKind]: (ctx: Context) => void;
+};
+
+export class Watcher
+  extends (EventEmitter as new () => TypedEmitter<TypedEvents>) {
   paths: string[] = [];
   options: Options;
-  #middlewares: Middleware<State>[] = [];
   #debounceTimers = new Map<string, number>();
 
   constructor(paths?: string | string[], options?: Partial<Options>) {
+    super();
     this.options = { ...defaultOptions, ...options };
     if (paths) {
       this.addPaths(paths);
@@ -71,7 +74,7 @@ export class Watcher<State extends RecordAny> {
     });
 
     for await (const event of watcher) {
-      event.paths.forEach(async (path) => {
+      event.paths.forEach((path) => {
         if (this.options.ignore && anymatch(this.options.ignore, path)) {
           return;
         }
@@ -90,48 +93,33 @@ export class Watcher<State extends RecordAny> {
             this.#debounceTimers.delete(key);
           }
 
-          const newTimer = setTimeout(async () => {
+          const newTimer = setTimeout(() => {
             this.#debounceTimers.delete(key);
-            await this.#handleEvent(newEvent);
+            this.#handleRawEvent(newEvent);
           }, this.options.debounceTime);
 
           this.#debounceTimers.set(key, newTimer);
         } else {
-          await this.#handleEvent(newEvent);
+          this.#handleRawEvent(newEvent);
         }
       });
     }
   }
 
-  async #handleEvent(event: CustomFsEvent) {
+  #handleRawEvent(event: CustomFsEvent) {
     const file = getFileInfo(event.path);
-    const eventName = this.#getEventName(event, file);
-    const context: Context<State> = {
+    const resolvedEvent = this.#resolveEvent(event, file);
+    const context: Context = {
       path: event.path,
-      event: eventName,
+      event: resolvedEvent,
       file: file,
       flag: event.flag,
-      state: {} as State,
-    };
-    let prevIndex = -1;
-
-    const next = async (i: number) => {
-      if (i <= prevIndex) {
-        throw new Error("next() is called multiple times in one middleware");
-      }
-      const middleware = this.#middlewares[i];
-      if (!middleware) {
-        return;
-      }
-      prevIndex = i;
-
-      await middleware(context, next.bind(null, i + 1) as Next);
     };
 
-    await next(0);
+    this.emit(resolvedEvent, context);
   }
 
-  #getEventName(event: CustomFsEvent, file: Deno.FileInfo | null): EventName {
+  #resolveEvent(event: CustomFsEvent, file: Deno.FileInfo | null): EventKind {
     let eventName = event.kind;
 
     if (eventName === "modify") {
@@ -141,9 +129,5 @@ export class Watcher<State extends RecordAny> {
     }
 
     return eventName;
-  }
-
-  use(fn: Middleware<State>) {
-    this.#middlewares.push(fn);
   }
 }
