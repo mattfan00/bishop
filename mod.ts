@@ -7,7 +7,7 @@ import {
 } from "./deps.ts";
 import { getFileInfo } from "./utils.ts";
 
-export type EventKind =
+export type DenoFsEventKind =
   | "any"
   | "access"
   | "create"
@@ -15,17 +15,27 @@ export type EventKind =
   | "remove"
   | "other";
 
-interface CustomFsEvent {
+interface CustomDenoFsEvent {
   path: string;
-  kind: EventKind;
+  kind: DenoFsEventKind;
   flag?: Deno.FsEventFlag;
 }
 
-export interface Context {
+export enum EventKind {
+  create = "create",
+  modify = "modify",
+  remove = "remove",
+  other = "other",
+}
+
+export interface WatcherEvent {
   path: string;
-  event: EventKind;
+  kind: EventKind;
   file: Deno.FileInfo | null;
-  flag?: Deno.FsEventFlag;
+  raw: {
+    kind: DenoFsEventKind;
+    flag?: Deno.FsEventFlag;
+  };
 }
 
 export interface Options {
@@ -40,7 +50,9 @@ const defaultOptions: Options = {
 };
 
 type TypedEvents = {
-  [event in EventKind]: (ctx: Context) => void;
+  ready: () => void;
+  event: (event: WatcherEvent) => void;
+  error: (err: Error) => void;
 };
 
 export class Watcher
@@ -69,6 +81,9 @@ export class Watcher
     if (this.paths.length === 0) {
       throw new Error("No paths provided to watch for");
     }
+
+    this.emit("ready");
+
     const watcher = Deno.watchFs(this.paths, {
       recursive: this.options.recursive,
     });
@@ -106,28 +121,42 @@ export class Watcher
     }
   }
 
-  #handleRawEvent(event: CustomFsEvent) {
+  #handleRawEvent(event: CustomDenoFsEvent) {
     const file = getFileInfo(event.path);
-    const resolvedEvent = this.#resolveEvent(event, file);
-    const context: Context = {
+    const resolvedEventKind = this.#resolveEventKind(event, file);
+    const watcherEvent: WatcherEvent = {
       path: event.path,
-      event: resolvedEvent,
+      kind: resolvedEventKind,
       file: file,
-      flag: event.flag,
+      raw: {
+        kind: event.kind,
+        flag: event.flag,
+      },
     };
 
-    this.emit(resolvedEvent, context);
+    this.emit("event", watcherEvent);
   }
 
-  #resolveEvent(event: CustomFsEvent, file: Deno.FileInfo | null): EventKind {
-    let eventName = event.kind;
+  #resolveEventKind(
+    event: CustomDenoFsEvent,
+    file: Deno.FileInfo | null,
+  ): EventKind {
+    if (event.kind === "create") {
+      return EventKind.create;
+    }
 
-    if (eventName === "modify") {
-      if (!file) {
-        eventName = "remove";
+    if (event.kind === "modify") {
+      if (file) {
+        return EventKind.modify;
+      } else {
+        return EventKind.remove;
       }
     }
 
-    return eventName;
+    if (event.kind === "remove") {
+      return EventKind.remove;
+    }
+
+    return EventKind.other;
   }
 }
